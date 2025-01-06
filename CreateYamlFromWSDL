@@ -1,99 +1,38 @@
 using System;
-using System.ServiceModel;
-using System.ServiceModel.Description;
-using System.ServiceModel.Channels;
+using System.Net.Http;
+using System.Xml;
 using System.Collections.Generic;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
-using System.ServiceModel.Discovery;
+using System.Threading.Tasks;
 
 namespace WsdlToYamlConverter
 {
     class Program
     {
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
+            // Provide the WSDL URL and output YAML file path
+            string wsdlUrl = "https://example.com/service?wsdl"; // Replace with your WSDL URL
+            string outputYamlPath = "output.yaml"; // Replace with desired output YAML file path
+
             try
             {
-                // Provide the WSDL URL and output YAML file path here
-                string wsdlUrl = "https://example.com/service?wsdl"; // Replace with your WSDL URL
-                string outputYamlPath = "output.yaml"; // Replace with desired output YAML file path
+                // Fetch WSDL content
+                string wsdlContent = await GetWsdlContent(wsdlUrl);
 
-                // Configure a custom binding with increased message size quota
-                BasicHttpBinding binding = new BasicHttpBinding
-                {
-                    MaxReceivedMessageSize = 10 * 1024 * 1024 // 10 MB
-                };
+                // Parse the WSDL content
+                XmlDocument xmlDoc = new XmlDocument();
+                xmlDoc.LoadXml(wsdlContent);
 
-                // Create the endpoint address for the WSDL URL
-                EndpointAddress endpoint = new EndpointAddress(wsdlUrl);
+                // Extract relevant WSDL details (services, ports, operations)
+                var services = ExtractWsdlInfo(xmlDoc);
 
-                // Create the MetadataExchangeClient with the custom binding and endpoint
-                MetadataExchangeClient mexClient = new MetadataExchangeClient(binding)
-                {
-                    Address = endpoint
-                };
-
-                // Retrieve the WSDL metadata
-                MetadataSet metadataSet = mexClient.GetMetadata();
-
-                // Parse WSDL
-                WsdlImporter importer = new WsdlImporter(metadataSet);
-                ServiceEndpointCollection endpoints = importer.ImportAllEndpoints();
-
-                // Build OpenAPI object
-                var openApi = new
-                {
-                    openapi = "3.0.1",
-                    info = new
-                    {
-                        title = "Generated API",
-                        description = $"OpenAPI specification converted from WSDL at {wsdlUrl}",
-                        version = "1.0.0"
-                    },
-                    paths = new Dictionary<string, object>()
-                };
-
-                foreach (var endpoint in endpoints)
-                {
-                    var operations = new Dictionary<string, object>();
-
-                    foreach (var operation in endpoint.Contract.Operations)
-                    {
-                        operations.Add(operation.Name, new
-                        {
-                            summary = $"Operation {operation.Name}",
-                            requestBody = new
-                            {
-                                description = "Request body",
-                                content = new Dictionary<string, object>
-                                {
-                                    { "application/xml", new { schema = new { type = "object" } } }
-                                }
-                            },
-                            responses = new
-                            {
-                                "200" = new
-                                {
-                                    description = "Successful response",
-                                    content = new Dictionary<string, object>
-                                    {
-                                        { "application/xml", new { schema = new { type = "object" } } }
-                                    }
-                                }
-                            }
-                        });
-                    }
-
-                    openApi.paths.Add($"/{endpoint.Contract.Name}", operations);
-                }
-
-                // Convert to YAML
+                // Convert to YAML format
                 var serializer = new SerializerBuilder()
                     .WithNamingConvention(CamelCaseNamingConvention.Instance)
                     .Build();
-
-                string yaml = serializer.Serialize(openApi);
+                string yaml = serializer.Serialize(services);
 
                 // Write YAML to file
                 System.IO.File.WriteAllText(outputYamlPath, yaml);
@@ -104,6 +43,49 @@ namespace WsdlToYamlConverter
             {
                 Console.WriteLine($"Error: {ex.Message}");
             }
+        }
+
+        // Fetch WSDL content from the URL
+        private static async Task<string> GetWsdlContent(string wsdlUrl)
+        {
+            using (var client = new HttpClient())
+            {
+                return await client.GetStringAsync(wsdlUrl);
+            }
+        }
+
+        // Extract basic WSDL details
+        private static object ExtractWsdlInfo(XmlDocument xmlDoc)
+        {
+            var services = new Dictionary<string, object>();
+
+            XmlNodeList serviceNodes = xmlDoc.GetElementsByTagName("service");
+            foreach (XmlNode serviceNode in serviceNodes)
+            {
+                var serviceName = serviceNode.Attributes["name"].Value;
+                var ports = new Dictionary<string, object>();
+
+                XmlNodeList portNodes = serviceNode.SelectNodes("port");
+                foreach (XmlNode portNode in portNodes)
+                {
+                    var portName = portNode.Attributes["name"].Value;
+                    var binding = portNode.SelectSingleNode("binding").Attributes["name"].Value;
+                    var operations = new List<string>();
+
+                    // Find operations related to this port
+                    XmlNodeList operationNodes = xmlDoc.GetElementsByTagName("operation");
+                    foreach (XmlNode operationNode in operationNodes)
+                    {
+                        operations.Add(operationNode.Attributes["name"].Value);
+                    }
+
+                    ports.Add(portName, new { binding, operations });
+                }
+
+                services.Add(serviceName, ports);
+            }
+
+            return services;
         }
     }
 }
