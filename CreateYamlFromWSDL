@@ -1,25 +1,24 @@
 using System;
-using System.Net.Http;
+using System.Net;
 using System.Xml;
 using System.Collections.Generic;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
-using System.Threading.Tasks;
 
 namespace WsdlToYamlConverter
 {
     class Program
     {
-        static async Task Main(string[] args)
+        static void Main(string[] args)
         {
-            // Provide the WSDL URL and output YAML file path
+            // Provide the WSDL URL and output YAML file path here
             string wsdlUrl = "https://example.com/service?wsdl"; // Replace with your WSDL URL
             string outputYamlPath = "output.yaml"; // Replace with desired output YAML file path
 
             try
             {
-                // Fetch WSDL content
-                string wsdlContent = await GetWsdlContent(wsdlUrl);
+                // Fetch WSDL content using WebClient (synchronous for .NET Framework 4.8)
+                string wsdlContent = GetWsdlContent(wsdlUrl);
 
                 // Parse the WSDL content
                 XmlDocument xmlDoc = new XmlDocument();
@@ -45,35 +44,40 @@ namespace WsdlToYamlConverter
             }
         }
 
-        // Fetch WSDL content from the URL
-        private static async Task<string> GetWsdlContent(string wsdlUrl)
+        // Fetch WSDL content from the URL (synchronous using WebClient)
+        private static string GetWsdlContent(string wsdlUrl)
         {
-            using (var client = new HttpClient())
+            using (var client = new WebClient())
             {
-                return await client.GetStringAsync(wsdlUrl);
+                return client.DownloadString(wsdlUrl);
             }
         }
 
-        // Extract basic WSDL details
+        // Extract basic WSDL details (services, ports, operations) considering namespaces
         private static object ExtractWsdlInfo(XmlDocument xmlDoc)
         {
             var services = new Dictionary<string, object>();
 
-            XmlNodeList serviceNodes = xmlDoc.GetElementsByTagName("service");
+            // Create XmlNamespaceManager to handle namespaces
+            XmlNamespaceManager nsManager = new XmlNamespaceManager(xmlDoc.NameTable);
+            nsManager.AddNamespace("wsdl", "http://schemas.xmlsoap.org/wsdl/");
+
+            // Get all service elements using the namespace manager
+            XmlNodeList serviceNodes = xmlDoc.SelectNodes("//wsdl:service", nsManager);
             foreach (XmlNode serviceNode in serviceNodes)
             {
                 var serviceName = serviceNode.Attributes["name"].Value;
                 var ports = new Dictionary<string, object>();
 
-                XmlNodeList portNodes = serviceNode.SelectNodes("port");
+                XmlNodeList portNodes = serviceNode.SelectNodes("wsdl:port", nsManager);
                 foreach (XmlNode portNode in portNodes)
                 {
                     var portName = portNode.Attributes["name"].Value;
-                    var binding = portNode.SelectSingleNode("binding").Attributes["name"].Value;
+                    var binding = portNode.SelectSingleNode("wsdl:binding", nsManager)?.Attributes["name"]?.Value;
                     var operations = new List<string>();
 
                     // Find operations related to this port
-                    XmlNodeList operationNodes = xmlDoc.GetElementsByTagName("operation");
+                    XmlNodeList operationNodes = xmlDoc.SelectNodes("//wsdl:operation", nsManager);
                     foreach (XmlNode operationNode in operationNodes)
                     {
                         operations.Add(operationNode.Attributes["name"].Value);
