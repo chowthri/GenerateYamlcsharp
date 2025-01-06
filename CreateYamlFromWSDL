@@ -1,19 +1,11 @@
-In .NET Framework 4.8, `MetadataExchangeClient` does not have a `Binding` property, which is why you are encountering the issue. To resolve this, you will need to manually create an HTTP client with a custom `HttpBinding` and then pass that client into the `MetadataExchangeClient`.
-
-Here’s how you can solve this by using a `ChannelFactory` with a custom `BasicHttpBinding` for the `MetadataExchangeClient`:
-
----
-
-### Updated Code for .NET Framework 4.8
-```csharp
 using System;
 using System.ServiceModel;
-using System.ServiceModel.Channels;
 using System.ServiceModel.Description;
+using System.ServiceModel.Channels;
 using System.Collections.Generic;
-using System.Xml;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
+using System.ServiceModel.Discovery;
 
 namespace WsdlToYamlConverter
 {
@@ -33,12 +25,17 @@ namespace WsdlToYamlConverter
                     MaxReceivedMessageSize = 10 * 1024 * 1024 // 10 MB
                 };
 
-                // Create a ChannelFactory for the MetadataExchangeClient
-                ChannelFactory<IMetadataExchange> factory = new ChannelFactory<IMetadataExchange>(binding, new EndpointAddress(wsdlUrl));
-                IMetadataExchange metadataExchange = factory.CreateChannel();
+                // Create the endpoint address for the WSDL URL
+                EndpointAddress endpoint = new EndpointAddress(wsdlUrl);
 
-                // Get WSDL Metadata
-                MetadataSet metadataSet = metadataExchange.GetMetadata();
+                // Create the MetadataExchangeClient with the custom binding and endpoint
+                MetadataExchangeClient mexClient = new MetadataExchangeClient(binding)
+                {
+                    Address = endpoint
+                };
+
+                // Retrieve the WSDL metadata
+                MetadataSet metadataSet = mexClient.GetMetadata();
 
                 // Parse WSDL
                 WsdlImporter importer = new WsdlImporter(metadataSet);
@@ -110,37 +107,3 @@ namespace WsdlToYamlConverter
         }
     }
 }
-```
-
----
-
-### Key Changes:
-1. **ChannelFactory**: 
-   - In .NET Framework 4.8, you must create a `ChannelFactory` for the `IMetadataExchange` interface instead of directly accessing the `Binding` property.
-   - The `ChannelFactory` is created using the custom `BasicHttpBinding` and WSDL URL.
-
-2. **Getting Metadata**:
-   - Once the `IMetadataExchange` channel is created, you can call `GetMetadata()` to retrieve the WSDL metadata.
-
----
-
-### Explanation:
-- **`BasicHttpBinding`**: This is used to configure the message size and other settings for the WSDL request. You can adjust `MaxReceivedMessageSize` to handle larger WSDL files.
-  
-- **`ChannelFactory<IMetadataExchange>`**: This is the key to interact with the metadata exchange service. It allows you to retrieve the metadata without the `Binding` property directly on `MetadataExchangeClient`.
-
----
-
-### Steps to Run:
-1. Replace `wsdlUrl` with the URL of your WSDL.
-2. Replace `outputYamlPath` with the desired location of your YAML output.
-3. Compile and run the program:
-   ```bash
-   dotnet run
-   ```
-   
-4. This will fetch the WSDL metadata and convert it into a YAML format.
-
----
-
-Let me know if you encounter any issues or need further help!
